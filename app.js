@@ -51,13 +51,13 @@ const messaging = firebase.messaging();
 const googleProvider = new firebase.auth.GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-// ========== SUPABASE INIT ==========
+// ========== SUPABASE INIT (renamed to supabaseClient) ==========
 const SUPABASE_URL = 'https://brululwrccmvhlhevjkn.supabase.co/rest/v1/';
 const SUPABASE_ANON_KEY = 'sb_publishable_u8Mb93q3osN_qdtnD2nNBQ_2FNQu9BP';
-let supabase = null;
+let supabaseClient = null;
 try {
     if (window.supabase && typeof window.supabase.createClient === 'function') {
-        supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
             auth: { persistSession: false }
         });
         console.log('✅ Supabase initialized');
@@ -719,19 +719,19 @@ async function openChatScreen(partnerId) {
 // ========== CHAT SEARCH ==========
 document.getElementById('chatSearchInput')?.addEventListener('input', function(e) { const term = e.target.value.toLowerCase().trim(); document.querySelectorAll('.chat-list-item').forEach(item => { const name = item.querySelector('.chat-name')?.textContent?.toLowerCase() || ''; item.style.display = name.includes(term) ? 'flex' : 'none'; }); });
 
-// ========== STORIES (using Supabase - kept unchanged) ==========
+// ========== STORIES (using Supabase - updated variable) ==========
 document.querySelector('[data-nav="stories"]')?.addEventListener('click', () => {
     if (!currentUser) { customAlert("Please log in to create a story.", "Login Required"); return; }
-    if (!supabase) { customAlert("Stories unavailable.", "Error"); return; }
+    if (!supabaseClient) { customAlert("Stories unavailable.", "Error"); return; }
     const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*,video/*';
     input.onchange = async (e) => {
         const file = e.target.files[0]; if (!file) return;
         if (file.size > 20 * 1024 * 1024) { customAlert("File must be less than 20MB.", "Error"); return; }
         const fileName = `stories/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
         try {
-            const { error } = await supabase.storage.from('chat-images').upload(fileName, file);
+            const { error } = await supabaseClient.storage.from('chat-images').upload(fileName, file);
             if (error) { console.error('Story upload error:', error); customAlert("Story upload failed.", "Error"); return; }
-            const { data: urlData } = supabase.storage.from('chat-images').getPublicUrl(fileName);
+            const { data: urlData } = supabaseClient.storage.from('chat-images').getPublicUrl(fileName);
             const modal = document.createElement('div'); modal.className = 'story-modal';
             modal.innerHTML = `<span class="story-close">&times;</span>${file.type.startsWith('video') ? `<video src="${urlData.publicUrl}" controls autoplay></video>` : `<img src="${urlData.publicUrl}">`}`;
             document.body.appendChild(modal); modal.querySelector('.story-close').onclick = () => modal.remove(); setTimeout(() => modal.remove(), 10000);
@@ -742,15 +742,15 @@ document.querySelector('[data-nav="stories"]')?.addEventListener('click', () => 
 
 // ========== WATCH STORIES (unchanged) ==========
 document.getElementById('watchStoriesBtn')?.addEventListener('click', async () => {
-    if (!supabase) { customAlert("Stories unavailable.", "Error"); return; }
+    if (!supabaseClient) { customAlert("Stories unavailable.", "Error"); return; }
     try {
-        const { data: files, error } = await supabase.storage.from('chat-images').list('stories', { limit: 20 });
+        const { data: files, error } = await supabaseClient.storage.from('chat-images').list('stories', { limit: 20 });
         if (error) { console.error('List error:', error); customAlert("Could not load stories.", "Error"); return; }
         if (!files?.length) { customAlert("No stories available", "Stories"); return; }
         let currentStory = 0; const stories = files.filter(f => f.name.match(/\.(mp4|webm|jpg|jpeg|png|gif)$/));
         if (!stories.length) { customAlert("No stories available", "Stories"); return; }
         const modal = document.createElement('div'); modal.className = 'story-modal';
-        const showStory = (index) => { const { data: urlData } = supabase.storage.from('chat-images').getPublicUrl(`stories/${stories[index].name}`); const url = urlData.publicUrl; const isVideo = stories[index].name.match(/\.(mp4|webm)$/); modal.innerHTML = `<span class="story-close">&times;</span>${isVideo ? `<video src="${url}" controls autoplay></video>` : `<img src="${url}">`}<div class="story-nav"><button id="prevStory">◀</button><button id="nextStory">▶</button></div>`; modal.querySelector('.story-close').onclick = () => modal.remove(); modal.querySelector('#prevStory')?.addEventListener('click', () => { currentStory = (currentStory - 1 + stories.length) % stories.length; showStory(currentStory); }); modal.querySelector('#nextStory')?.addEventListener('click', () => { currentStory = (currentStory + 1) % stories.length; showStory(currentStory); }); };
+        const showStory = (index) => { const { data: urlData } = supabaseClient.storage.from('chat-images').getPublicUrl(`stories/${stories[index].name}`); const url = urlData.publicUrl; const isVideo = stories[index].name.match(/\.(mp4|webm)$/); modal.innerHTML = `<span class="story-close">&times;</span>${isVideo ? `<video src="${url}" controls autoplay></video>` : `<img src="${url}">`}<div class="story-nav"><button id="prevStory">◀</button><button id="nextStory">▶</button></div>`; modal.querySelector('.story-close').onclick = () => modal.remove(); modal.querySelector('#prevStory')?.addEventListener('click', () => { currentStory = (currentStory - 1 + stories.length) % stories.length; showStory(currentStory); }); modal.querySelector('#nextStory')?.addEventListener('click', () => { currentStory = (currentStory + 1) % stories.length; showStory(currentStory); }); };
         showStory(0); document.body.appendChild(modal); setTimeout(() => modal.remove(), 30000);
     } catch (err) { console.error('Story error:', err); customAlert("Could not load stories.", "Error"); }
 });
