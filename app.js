@@ -167,7 +167,7 @@ function listenForNotifications() {
     });
 }
 
-// ========== AUTH (with ban check & referral) – ORIGINAL LOGIN SYSTEM UNTOUCHED ==========
+// ========== AUTH (with ban check & referral) ==========
 window.signupUser = async (email, password, name, age, gender, referralCode) => {
     try {
         const existingQuery = db.collection("users").where("email", "==", email);
@@ -826,8 +826,8 @@ async function updateLastSeen() { if(currentUser) await db.collection("users").d
 async function loadCurrentUser() { const uid = localStorage.getItem('currentUserUid'); if(uid) currentUser = (await db.collection("users").doc(uid).get()).data(); }
 async function renderAll() { await renderProfileUI(); await renderChatList(); await renderExplore(); }
 
-// ========== UI EVENT BINDING (FIXED – DOM READY) ==========
-document.addEventListener('DOMContentLoaded', function() {
+// ========== UI EVENT BINDING (FIXED – READYSTATE CHECK) ==========
+function initApp() {
     console.log('✅ DOM ready – binding events');
 
     try {
@@ -999,4 +999,11 @@ document.addEventListener('DOMContentLoaded', function() {
     } catch (err) {
         console.error('❌ Error during event binding:', err);
     }
-});
+}
+
+// Run initApp correctly regardless of DOM state
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initApp);
+} else {
+    initApp();
+}
