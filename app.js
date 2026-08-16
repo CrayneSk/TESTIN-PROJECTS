@@ -826,18 +826,177 @@ async function updateLastSeen() { if(currentUser) await db.collection("users").d
 async function loadCurrentUser() { const uid = localStorage.getItem('currentUserUid'); if(uid) currentUser = (await db.collection("users").doc(uid).get()).data(); }
 async function renderAll() { await renderProfileUI(); await renderChatList(); await renderExplore(); }
 
-// ========== UI EVENT BINDING (ORIGINAL – UNTOUCHED) ==========
-document.getElementById('goToSignupLink')?.addEventListener('click', (e) => { e.preventDefault(); document.getElementById('loginView').style.display = 'none'; document.getElementById('signupView').style.display = 'flex'; });
-document.getElementById('goToLoginLink')?.addEventListener('click', (e) => { e.preventDefault(); document.getElementById('signupView').style.display = 'none'; document.getElementById('loginView').style.display = 'flex'; });
-document.getElementById('forgotPasswordBtn')?.addEventListener('click', async () => { const email = await customPrompt("Enter your email:", "", "Reset Password"); if(email) auth.sendPasswordResetEmail(email).then(()=>customAlert("Reset email sent", "Email")).catch(err=>customAlert(err.message, "Error")); });
-document.getElementById('appealBanBtn')?.addEventListener('click', async () => { const email = await customPrompt("Enter your email address:", "", "Appeal Ban"); if (!email) return; const usersSnap = await db.collection("users").where("email", "==", email).get(); if (usersSnap.empty) { await customAlert("No account found.", "Not Found"); return; } const userDoc = usersSnap.docs[0]; const userData = userDoc.data(); if (!userData.banned) { await customAlert("Not banned.", "OK"); return; } const reason = await customPrompt("Why unban?", "", "Appeal"); if (reason) { await db.collection("appeals").add({ userId: userDoc.id, reason, status: "pending", timestamp: Date.now() }); await customAlert("Appeal submitted.", "Done"); } });
-document.getElementById('googleSignInBtn')?.addEventListener('click', async () => { try{ const user=await window.signInWithGoogle(); localStorage.setItem('currentUserUid',user.uid); currentUser=(await db.collection("users").doc(user.uid).get()).data(); showMainApp(); }catch(err){ await customAlert(err.message, "Error"); } });
-document.getElementById('googleSignUpBtn')?.addEventListener('click', async () => { try{ const user=await window.signInWithGoogle(); localStorage.setItem('currentUserUid',user.uid); currentUser=(await db.collection("users").doc(user.uid).get()).data(); showMainApp(); }catch(err){ await customAlert(err.message, "Error"); } });
-document.getElementById('signupFormElem')?.addEventListener('submit', async (e) => { e.preventDefault(); const name=document.getElementById('signupName').value, email=document.getElementById('signupEmail').value, pwd=document.getElementById('signupPassword').value, confirm=document.getElementById('confirmPwd').value; if(pwd!==confirm){ await customAlert("Passwords mismatch", "Error"); return; } const gender=document.getElementById('signupGender').value, age=document.getElementById('signupAge').value; const refCode=document.getElementById('signupReferralCode').value; try{ await window.signupUser(email,pwd,name,age,gender, refCode); document.getElementById('signupView').style.display='none'; document.getElementById('loginView').style.display='flex'; }catch(err){ await customAlert("Signup failed: "+err.message, "Error"); } });
-document.getElementById('loginFormElem')?.addEventListener('submit', async (e) => { e.preventDefault(); const email=document.getElementById('loginEmail').value, pwd=document.getElementById('loginPassword').value; try{ const user=await window.loginUserFirebase(email,pwd); localStorage.setItem('currentUserUid',user.uid); currentUser=(await db.collection("users").doc(user.uid).get()).data(); showMainApp(); }catch(err){ await customAlert("Login failed: "+err.message, "Error"); } });
-document.getElementById('uploadIntroBtn')?.addEventListener('click', () => { const file=document.getElementById('introUploadInput').files[0]; if(file) uploadIntro(file); else customAlert("Select a file first", "Error"); });
-document.getElementById('applyFilterBtn')?.addEventListener('click', () => renderExplore());
-document.querySelectorAll('.toggle-pwd').forEach(icon=>{ icon.addEventListener('click',function(){ let target=document.getElementById(this.dataset.target); if(target.type==='password') target.type='text'; else target.type='password'; this.classList.toggle('fa-eye');}); });
-(function() { const params = new URLSearchParams(window.location.search); const ref = params.get('ref'); if (ref) { const loginGroup = document.getElementById('loginReferralGroup'); const loginInput = document.getElementById('loginReferralCode'); if (loginGroup && loginInput) { loginGroup.style.display = 'block'; loginInput.value = ref; } const signupInput = document.getElementById('signupReferralCode'); if (signupInput) signupInput.value = ref; } })();
-if ('serviceWorker' in navigator) { navigator.serviceWorker.register('/firebase-messaging-sw.js').then(registration => { console.log('Service Worker registered'); messaging.useServiceWorker(registration); }); }
-if(localStorage.getItem('currentUserUid')) { loadCurrentUser().then(()=>{ if(currentUser) showMainApp(); else document.getElementById('loginView').style.display='flex'; }); } else { document.getElementById('loginView').style.display='flex'; }
+// ========== UI EVENT BINDING (FIXED – DOM READY) ==========
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('✅ DOM ready – binding events');
+
+    try {
+        // Link toggles
+        document.getElementById('goToSignupLink')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            document.getElementById('loginView').style.display = 'none';
+            document.getElementById('signupView').style.display = 'flex';
+        });
+        document.getElementById('goToLoginLink')?.addEventListener('click', (e) => {
+            e.preventDefault();
+            document.getElementById('signupView').style.display = 'none';
+            document.getElementById('loginView').style.display = 'flex';
+        });
+
+        // Forgot password
+        document.getElementById('forgotPasswordBtn')?.addEventListener('click', async () => {
+            const email = await customPrompt("Enter your email:", "", "Reset Password");
+            if (email) {
+                auth.sendPasswordResetEmail(email)
+                    .then(() => customAlert("Reset email sent", "Email"))
+                    .catch(err => customAlert(err.message, "Error"));
+            }
+        });
+
+        // Appeal ban
+        document.getElementById('appealBanBtn')?.addEventListener('click', async () => {
+            const email = await customPrompt("Enter your email address:", "", "Appeal Ban");
+            if (!email) return;
+            const usersSnap = await db.collection("users").where("email", "==", email).get();
+            if (usersSnap.empty) {
+                await customAlert("No account found.", "Not Found");
+                return;
+            }
+            const userDoc = usersSnap.docs[0];
+            const userData = userDoc.data();
+            if (!userData.banned) {
+                await customAlert("Not banned.", "OK");
+                return;
+            }
+            const reason = await customPrompt("Why unban?", "", "Appeal");
+            if (reason) {
+                await db.collection("appeals").add({
+                    userId: userDoc.id,
+                    reason,
+                    status: "pending",
+                    timestamp: Date.now()
+                });
+                await customAlert("Appeal submitted.", "Done");
+            }
+        });
+
+        // Google sign-in (login & signup)
+        document.getElementById('googleSignInBtn')?.addEventListener('click', async () => {
+            try {
+                const user = await window.signInWithGoogle();
+                localStorage.setItem('currentUserUid', user.uid);
+                currentUser = (await db.collection("users").doc(user.uid).get()).data();
+                showMainApp();
+            } catch (err) {
+                await customAlert(err.message, "Error");
+            }
+        });
+        document.getElementById('googleSignUpBtn')?.addEventListener('click', async () => {
+            try {
+                const user = await window.signInWithGoogle();
+                localStorage.setItem('currentUserUid', user.uid);
+                currentUser = (await db.collection("users").doc(user.uid).get()).data();
+                showMainApp();
+            } catch (err) {
+                await customAlert(err.message, "Error");
+            }
+        });
+
+        // Signup form
+        document.getElementById('signupFormElem')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('signupName').value;
+            const email = document.getElementById('signupEmail').value;
+            const pwd = document.getElementById('signupPassword').value;
+            const confirm = document.getElementById('confirmPwd').value;
+            if (pwd !== confirm) {
+                await customAlert("Passwords mismatch", "Error");
+                return;
+            }
+            const gender = document.getElementById('signupGender').value;
+            const age = document.getElementById('signupAge').value;
+            const refCode = document.getElementById('signupReferralCode').value;
+            try {
+                await window.signupUser(email, pwd, name, age, gender, refCode);
+                document.getElementById('signupView').style.display = 'none';
+                document.getElementById('loginView').style.display = 'flex';
+            } catch (err) {
+                await customAlert("Signup failed: " + err.message, "Error");
+            }
+        });
+
+        // Login form
+        document.getElementById('loginFormElem')?.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('loginEmail').value;
+            const pwd = document.getElementById('loginPassword').value;
+            try {
+                const user = await window.loginUserFirebase(email, pwd);
+                localStorage.setItem('currentUserUid', user.uid);
+                currentUser = (await db.collection("users").doc(user.uid).get()).data();
+                showMainApp();
+            } catch (err) {
+                await customAlert("Login failed: " + err.message, "Error");
+            }
+        });
+
+        // Intro upload
+        document.getElementById('uploadIntroBtn')?.addEventListener('click', () => {
+            const file = document.getElementById('introUploadInput').files[0];
+            if (file) uploadIntro(file);
+            else customAlert("Select a file first", "Error");
+        });
+
+        // Apply filter
+        document.getElementById('applyFilterBtn')?.addEventListener('click', () => renderExplore());
+
+        // Password toggle eye
+        document.querySelectorAll('.toggle-pwd').forEach(icon => {
+            icon.addEventListener('click', function() {
+                let target = document.getElementById(this.dataset.target);
+                if (target.type === 'password') target.type = 'text';
+                else target.type = 'password';
+                this.classList.toggle('fa-eye');
+            });
+        });
+
+        // Referral code from URL
+        (function() {
+            const params = new URLSearchParams(window.location.search);
+            const ref = params.get('ref');
+            if (ref) {
+                const loginGroup = document.getElementById('loginReferralGroup');
+                const loginInput = document.getElementById('loginReferralCode');
+                if (loginGroup && loginInput) {
+                    loginGroup.style.display = 'block';
+                    loginInput.value = ref;
+                }
+                const signupInput = document.getElementById('signupReferralCode');
+                if (signupInput) signupInput.value = ref;
+            }
+        })();
+
+        // Service Worker registration
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/firebase-messaging-sw.js')
+                .then(registration => {
+                    console.log('Service Worker registered');
+                    messaging.useServiceWorker(registration);
+                });
+        }
+
+        // Auto-login if already authenticated
+        if (localStorage.getItem('currentUserUid')) {
+            loadCurrentUser().then(() => {
+                if (currentUser) showMainApp();
+                else document.getElementById('loginView').style.display = 'flex';
+            });
+        } else {
+            document.getElementById('loginView').style.display = 'flex';
+        }
+
+        console.log('✅ All events bound successfully');
+    } catch (err) {
+        console.error('❌ Error during event binding:', err);
+    }
+});
