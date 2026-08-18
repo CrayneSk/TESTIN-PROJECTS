@@ -815,7 +815,6 @@ async function showContactsInvite() { /* unchanged */ }
 function showRatingModal() { /* unchanged */ }
 async function deleteAccount() { /* unchanged */ }
 
-// ========== MEET AI ==========
 // ========== MEET AI (using Render API) ==========
 let aiConversation = [{ role: "system", content: "You are MEET AI, a helpful dating advisor." }];
 
@@ -859,7 +858,10 @@ async function sendAiMessage() {
         aiConversation.push({ role: 'assistant', content: reply });
     } catch (err) {
         typingDiv.remove();
-        addAiBubble("Sorry, try again later.", 'bot');
+        console.error('AI Chat Error:', err);
+        // Display the actual error message to the user
+        const errorMessage = err.message || 'Something went wrong. Please try again.';
+        addAiBubble(`⚠️ ${errorMessage}`, 'bot error');
     }
 }
 
@@ -872,41 +874,59 @@ function addAiBubble(text, sender) {
 
 // ========== AI Response Fetcher (calls your Render API) ==========
 async function fetchAIResponse() {
-    // Get the Firebase Auth user object (not Firestore data)
     const firebaseUser = auth.currentUser;
     if (!firebaseUser) {
-        throw new Error("Not authenticated");
+        throw new Error("You are not logged in. Please log in to use MEET AI.");
     }
 
-    // Get Firebase ID token
-    const token = await firebaseUser.getIdToken();
+    let token;
+    try {
+        token = await firebaseUser.getIdToken();
+    } catch (err) {
+        throw new Error("Could not get authentication token. Please refresh and try again.");
+    }
 
-    // Prepare the message history (last 10 messages for context)
     const messages = aiConversation.slice(-10);
 
-    const response = await fetch('https://sk-api-hze5.onrender.com/chat', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-            'x-api-key': 'sk-user-001'
-        },
-        body: JSON.stringify({
-            messages: messages
-        })
-    });
-
-    if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP ${response.status}`);
+    let response;
+    try {
+        response = await fetch('https://sk-api-hze5.onrender.com/chat', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+                'x-api-key': 'sk-user-001'
+            },
+            body: JSON.stringify({ messages })
+        });
+    } catch (err) {
+        throw new Error("Cannot reach the AI server. Check your internet connection or try again later.");
     }
 
-    const data = await response.json();
+    if (!response.ok) {
+        let errorMessage = `Server error (HTTP ${response.status})`;
+        try {
+            const errorData = await response.json();
+            if (errorData.error) errorMessage = errorData.error;
+        } catch (e) {
+            // ignore JSON parse error, use default message
+        }
+        throw new Error(errorMessage);
+    }
+
+    let data;
+    try {
+        data = await response.json();
+    } catch (err) {
+        throw new Error("Received an invalid response from the AI server.");
+    }
+
     if (!data.success || !data.reply) {
-        throw new Error(data.error || 'No reply from AI');
+        throw new Error(data.error || "The AI server returned an unexpected response.");
     }
 
     return data.reply;
+}
 }
 // ========== LIFE-CYCLE ==========
 function attachNavEvents() { document.querySelectorAll('.nav-item').forEach(item => { item.addEventListener('click', async () => { const viewId = item.dataset.nav; document.querySelectorAll('.view').forEach(v => v.classList.remove('active-view')); if (viewId === 'stories') return; document.getElementById(viewId + 'View').classList.add('active-view'); document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active')); item.classList.add('active'); if(viewId === 'messages') { document.getElementById('chatListContainer').style.display = 'block'; document.getElementById('chatScreenContainer').style.display = 'none'; if(unsubscribeMessages) unsubscribeMessages(); await renderChatList(); } if(viewId === 'explore') await renderExplore(); if(viewId === 'profile') await renderProfileUI(); if(viewId === 'swipe') await renderSwipeCards(); document.getElementById('editProfileView').style.display = 'none'; document.getElementById('settingsDetailView').style.display = 'none'; }); }); document.querySelector('.nav-item[data-nav="swipe"]').classList.add('active'); }
