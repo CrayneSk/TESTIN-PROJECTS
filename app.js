@@ -51,9 +51,9 @@ const messaging = firebase.messaging();
 const googleProvider = new firebase.auth.GoogleAuthProvider();
 googleProvider.setCustomParameters({ prompt: 'select_account' });
 
-// ========== SUPABASE INIT (renamed to supabaseClient) ==========
-const SUPABASE_URL = 'https://brululwrccmvhlhevjkn.supabase.co/rest/v1/';
-const SUPABASE_ANON_KEY = 'sb_publishable_u8Mb93q3osN_qdtnD2nNBQ_2FNQu9BP';
+// ========== SUPABASE INIT (NEW CREDENTIALS) ==========
+const SUPABASE_URL = 'https://nowcekgmejurwkxndrru.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_Ejbgg_oZVCW4MFS44X2jlA_oFVXnnYU';
 let supabaseClient = null;
 try {
     if (window.supabase && typeof window.supabase.createClient === 'function') {
@@ -291,9 +291,13 @@ async function loadEvents() {
     modal.querySelector('#closeEventsModal').onclick = () => modal.remove();
 }
 async function uploadIntro(file) {
-    const introRef = storage.ref(`intros/${currentUser.uid}/${Date.now()}_${file.name}`);
-    await introRef.put(file); const url = await introRef.getDownloadURL();
-    await db.collection("users").doc(currentUser.uid).update({ introUrl: url }); await customAlert("Intro uploaded!", "Success");
+    if (!supabaseClient) { await customAlert("Supabase not initialized.", "Error"); return; }
+    const fileName = `intros/${currentUser.uid}_${Date.now()}_${file.name}`;
+    const { error } = await supabaseClient.storage.from('profile-pics').upload(fileName, file);
+    if (error) { await customAlert("Intro upload failed.", "Error"); return; }
+    const { data: urlData } = supabaseClient.storage.from('profile-pics').getPublicUrl(fileName);
+    await db.collection("users").doc(currentUser.uid).update({ introUrl: urlData.publicUrl });
+    await customAlert("Intro uploaded!", "Success");
 }
 async function submitAppeal(reason) {
     await db.collection("appeals").add({ userId: currentUser.uid, reason, status: "pending", timestamp: Date.now() });
@@ -592,7 +596,7 @@ async function renderChatList() {
     }));
 }
 
-// ========== FULL-SCREEN CHAT WITH IMAGE/VOICE (USING PUTER.JS) ==========
+// ========== FULL-SCREEN CHAT WITH IMAGE/VOICE (USING SUPABASE) ==========
 async function openChatScreen(partnerId) {
     if(currentUser.verified !== true) { await customAlert("You must verify your identity before chatting.", "Verification Required"); return; }
     currentChatPartner = partnerId;
@@ -615,23 +619,24 @@ async function openChatScreen(partnerId) {
     document.getElementById('backToChatList').onclick = () => { screenDiv.style.display = 'none'; screenDiv.classList.remove('fullscreen'); document.getElementById('chatListContainer').style.display = 'block'; if(unsubscribeMessages) unsubscribeMessages(); renderChatList(); };
     const chatId = [currentUser.uid, partnerId].sort().join('_');
     
-    // ========== IMAGE UPLOAD USING PUTER.JS ==========
+    // ========== IMAGE UPLOAD USING SUPABASE ==========
     document.getElementById('sendImageBtn').addEventListener('click', () => {
-        if (!window.puter) {
-            customAlert("Puter.js not loaded. Please refresh and try again.", "Error");
+        if (!supabaseClient) {
+            customAlert("Supabase not initialized.", "Error");
             return;
         }
         const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*';
         input.onchange = async (e) => {
             const file = e.target.files[0]; if (!file) return;
             if (file.size > 10 * 1024 * 1024) { customAlert("Image must be less than 10MB.", "Error"); return; }
-            const fileName = `chat-images/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+            const fileName = `chat-images/${currentUser.uid}_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
             try {
-                const savedFile = await puter.fs.write(fileName, file);
-                const publicUrl = savedFile.url;
+                const { error } = await supabaseClient.storage.from('chat-images').upload(fileName, file);
+                if (error) throw error;
+                const { data: urlData } = supabaseClient.storage.from('chat-images').getPublicUrl(fileName);
                 await db.collection("chats").doc(chatId).collection("messages").add({
                     senderId: currentUser.uid,
-                    text: publicUrl,
+                    text: urlData.publicUrl,
                     type: 'image',
                     timestamp: Date.now(),
                     status: "sent",
@@ -645,11 +650,11 @@ async function openChatScreen(partnerId) {
         input.click();
     });
     
-    // ========== VOICE RECORDING & UPLOAD USING PUTER.JS ==========
+    // ========== VOICE RECORDING & UPLOAD USING SUPABASE ==========
     let mediaRecorder, audioChunks = [];
     document.getElementById('sendVoiceBtn').addEventListener('click', async () => {
-        if (!window.puter) {
-            customAlert("Puter.js not loaded. Please refresh.", "Error");
+        if (!supabaseClient) {
+            customAlert("Supabase not initialized.", "Error");
             return;
         }
         if (!mediaRecorder || mediaRecorder.state === 'inactive') {
@@ -661,13 +666,14 @@ async function openChatScreen(partnerId) {
                 mediaRecorder.onstop = async () => {
                     if (audioChunks.length === 0) { customAlert("No audio recorded.", "Error"); return; }
                     const blob = new Blob(audioChunks, { type: 'audio/webm' });
-                    const fileName = `voice-messages/${Date.now()}_voice.webm`;
+                    const fileName = `voice-messages/${currentUser.uid}_${Date.now()}_voice.webm`;
                     try {
-                        const savedFile = await puter.fs.write(fileName, blob);
-                        const publicUrl = savedFile.url;
+                        const { error } = await supabaseClient.storage.from('chat-images').upload(fileName, blob);
+                        if (error) throw error;
+                        const { data: urlData } = supabaseClient.storage.from('chat-images').getPublicUrl(fileName);
                         await db.collection("chats").doc(chatId).collection("messages").add({
                             senderId: currentUser.uid,
-                            text: publicUrl,
+                            text: urlData.publicUrl,
                             type: 'voice',
                             timestamp: Date.now(),
                             status: "sent",
@@ -719,7 +725,7 @@ async function openChatScreen(partnerId) {
 // ========== CHAT SEARCH ==========
 document.getElementById('chatSearchInput')?.addEventListener('input', function(e) { const term = e.target.value.toLowerCase().trim(); document.querySelectorAll('.chat-list-item').forEach(item => { const name = item.querySelector('.chat-name')?.textContent?.toLowerCase() || ''; item.style.display = name.includes(term) ? 'flex' : 'none'; }); });
 
-// ========== STORIES (using Supabase - updated variable) ==========
+// ========== STORIES (using Supabase) ==========
 document.querySelector('[data-nav="stories"]')?.addEventListener('click', () => {
     if (!currentUser) { customAlert("Please log in to create a story.", "Login Required"); return; }
     if (!supabaseClient) { customAlert("Stories unavailable.", "Error"); return; }
@@ -727,7 +733,7 @@ document.querySelector('[data-nav="stories"]')?.addEventListener('click', () => 
     input.onchange = async (e) => {
         const file = e.target.files[0]; if (!file) return;
         if (file.size > 20 * 1024 * 1024) { customAlert("File must be less than 20MB.", "Error"); return; }
-        const fileName = `stories/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+        const fileName = `stories/${currentUser.uid}_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
         try {
             const { error } = await supabaseClient.storage.from('chat-images').upload(fileName, file);
             if (error) { console.error('Story upload error:', error); customAlert("Story upload failed.", "Error"); return; }
@@ -740,7 +746,7 @@ document.querySelector('[data-nav="stories"]')?.addEventListener('click', () => 
     input.click();
 });
 
-// ========== WATCH STORIES (unchanged) ==========
+// ========== WATCH STORIES (using Supabase) ==========
 document.getElementById('watchStoriesBtn')?.addEventListener('click', async () => {
     if (!supabaseClient) { customAlert("Stories unavailable.", "Error"); return; }
     try {
@@ -768,12 +774,12 @@ async function renderProfileUI() {
     document.getElementById('shareProfileBtn').onclick = async () => await customAlert("Share profile link (demo)", "Share");
     document.getElementById('changePhotoBtn').onclick = () => document.getElementById('photoUploadInput').click();
     
-    // ========== PROFILE PICTURE UPLOAD USING PUTER.JS ==========
+    // ========== PROFILE PICTURE UPLOAD USING SUPABASE ==========
     document.getElementById('photoUploadInput').onchange = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        if (!window.puter) {
-            await customAlert("Puter.js not loaded. Please refresh and try again.", "Error");
+        if (!supabaseClient) {
+            await customAlert("Supabase not initialized.", "Error");
             return;
         }
         if (file.size > 5 * 1024 * 1024) {
@@ -782,8 +788,10 @@ async function renderProfileUI() {
         }
         try {
             const fileName = `profile-pics/${currentUser.uid}_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-            const savedFile = await puter.fs.write(fileName, file);
-            const publicUrl = savedFile.url;
+            const { error } = await supabaseClient.storage.from('profile-pics').upload(fileName, file);
+            if (error) throw error;
+            const { data: urlData } = supabaseClient.storage.from('profile-pics').getPublicUrl(fileName);
+            const publicUrl = urlData.publicUrl;
             await db.collection("users").doc(currentUser.uid).update({ profilePic: publicUrl });
             currentUser.profilePic = publicUrl;
             document.getElementById('profileAvatar').src = publicUrl + '?t=' + Date.now();
