@@ -816,16 +816,98 @@ function showRatingModal() { /* unchanged */ }
 async function deleteAccount() { /* unchanged */ }
 
 // ========== MEET AI ==========
-const OPENAI_API_KEY = 'sk-proj--sRSTKZsyezcl06e0A';
-let aiConversation = [{ role: "system", content: "You are MEET AI, a helpful assistant." }];
-document.getElementById('aiChatToggleBtn').addEventListener('click', () => { if (!currentUser) { customAlert("Login required.", "Login"); return; } const win = document.getElementById('aiChatWindow'); win.style.display = (win.style.display === 'flex') ? 'none' : 'flex'; if (win.style.display === 'flex') document.getElementById('aiChatInput').focus(); });
-document.getElementById('closeAiChat').addEventListener('click', () => { document.getElementById('aiChatWindow').style.display = 'none'; });
-document.getElementById('sendAiMsg').addEventListener('click', sendAiMessage);
-document.getElementById('aiChatInput').addEventListener('keypress', (e) => { if (e.key === 'Enter') sendAiMessage(); });
-async function sendAiMessage() { const input = document.getElementById('aiChatInput'); const text = input.value.trim(); if (!text) return; addAiBubble(text, 'user'); aiConversation.push({ role: 'user', content: text }); input.value = ''; const typingDiv = document.createElement('div'); typingDiv.className = 'ai-message bot typing-indicator'; typingDiv.innerHTML = '<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>'; document.getElementById('aiChatBody').appendChild(typingDiv); try { const reply = await fetchOpenAIResponse(); typingDiv.remove(); addAiBubble(reply, 'bot'); aiConversation.push({ role: 'assistant', content: reply }); } catch (err) { typingDiv.remove(); addAiBubble("Sorry, try again later.", 'bot'); } }
-function addAiBubble(text, sender) { const bubble = document.createElement('div'); bubble.className = `ai-message ${sender}`; bubble.textContent = text; document.getElementById('aiChatBody').appendChild(bubble); }
-async function fetchOpenAIResponse() { const response = await fetch('https://api.openai.com/v1/chat/completions', { method: 'POST', headers: { 'Authorization': `Bearer ${OPENAI_API_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'gpt-3.5-turbo', messages: aiConversation, temperature: 0.7, max_tokens: 300 }) }); if (!response.ok) throw new Error(`API error: ${response.status}`); const data = await response.json(); return data.choices[0].message.content; }
+// ========== MEET AI (using Render API) ==========
+let aiConversation = [{ role: "system", content: "You are MEET AI, a helpful dating advisor." }];
 
+document.getElementById('aiChatToggleBtn').addEventListener('click', () => {
+    if (!currentUser) {
+        customAlert("Login required.", "Login");
+        return;
+    }
+    const win = document.getElementById('aiChatWindow');
+    win.style.display = (win.style.display === 'flex') ? 'none' : 'flex';
+    if (win.style.display === 'flex') document.getElementById('aiChatInput').focus();
+});
+
+document.getElementById('closeAiChat').addEventListener('click', () => {
+    document.getElementById('aiChatWindow').style.display = 'none';
+});
+
+document.getElementById('sendAiMsg').addEventListener('click', sendAiMessage);
+document.getElementById('aiChatInput').addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendAiMessage();
+});
+
+async function sendAiMessage() {
+    const input = document.getElementById('aiChatInput');
+    const text = input.value.trim();
+    if (!text) return;
+
+    addAiBubble(text, 'user');
+    aiConversation.push({ role: 'user', content: text });
+    input.value = '';
+
+    const typingDiv = document.createElement('div');
+    typingDiv.className = 'ai-message bot typing-indicator';
+    typingDiv.innerHTML = '<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>';
+    document.getElementById('aiChatBody').appendChild(typingDiv);
+
+    try {
+        const reply = await fetchAIResponse();
+        typingDiv.remove();
+        addAiBubble(reply, 'bot');
+        aiConversation.push({ role: 'assistant', content: reply });
+    } catch (err) {
+        typingDiv.remove();
+        addAiBubble("Sorry, try again later.", 'bot');
+    }
+}
+
+function addAiBubble(text, sender) {
+    const bubble = document.createElement('div');
+    bubble.className = `ai-message ${sender}`;
+    bubble.textContent = text;
+    document.getElementById('aiChatBody').appendChild(bubble);
+}
+
+// ========== AI Response Fetcher (calls your Render API) ==========
+async function fetchAIResponse() {
+    // Get the Firebase Auth user object (not Firestore data)
+    const firebaseUser = auth.currentUser;
+    if (!firebaseUser) {
+        throw new Error("Not authenticated");
+    }
+
+    // Get Firebase ID token
+    const token = await firebaseUser.getIdToken();
+
+    // Prepare the message history (last 10 messages for context)
+    const messages = aiConversation.slice(-10);
+
+    const response = await fetch('https://sk-api-hze5.onrender.com/chat', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+            'x-api-key': 'sk-user-001'
+        },
+        body: JSON.stringify({
+            messages: messages
+        })
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (!data.success || !data.reply) {
+        throw new Error(data.error || 'No reply from AI');
+    }
+
+    return data.reply;
+}
 // ========== LIFE-CYCLE ==========
 function attachNavEvents() { document.querySelectorAll('.nav-item').forEach(item => { item.addEventListener('click', async () => { const viewId = item.dataset.nav; document.querySelectorAll('.view').forEach(v => v.classList.remove('active-view')); if (viewId === 'stories') return; document.getElementById(viewId + 'View').classList.add('active-view'); document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active')); item.classList.add('active'); if(viewId === 'messages') { document.getElementById('chatListContainer').style.display = 'block'; document.getElementById('chatScreenContainer').style.display = 'none'; if(unsubscribeMessages) unsubscribeMessages(); await renderChatList(); } if(viewId === 'explore') await renderExplore(); if(viewId === 'profile') await renderProfileUI(); if(viewId === 'swipe') await renderSwipeCards(); document.getElementById('editProfileView').style.display = 'none'; document.getElementById('settingsDetailView').style.display = 'none'; }); }); document.querySelector('.nav-item[data-nav="swipe"]').classList.add('active'); }
 async function showMainApp() { document.getElementById('loginView').style.display = 'none'; document.getElementById('signupView').style.display = 'none'; document.getElementById('mainApp').style.display = 'block'; await loadCurrentUser(); requestPushPermission(); checkForUpdates(); if(unsubscribeUser) unsubscribeUser(); const userRef = db.collection("users").doc(currentUser.uid); unsubscribeUser = userRef.onSnapshot(docSnap => { if(docSnap.exists) { currentUser = docSnap.data(); renderProfileUI(); renderSwipeCards(); renderExplore(); renderChatList(); } }); await renderAll(); attachNavEvents(); await renderSwipeCards(); renderChatList(); startHeartbeat(); await updateLastSeen(); listenForNotifications(); window.addEventListener('beforeunload', async () => { if(currentUser) await db.collection("users").doc(currentUser.uid).update({ lastSeen: 0 }); if(heartbeatInterval) clearInterval(heartbeatInterval); if(unsubscribeNotifications) unsubscribeNotifications(); }); }
